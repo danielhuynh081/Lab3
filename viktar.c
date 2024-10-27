@@ -14,6 +14,7 @@
 #include <grp.h>  // For getgrgid
 #include <fcntl.h>  // Required for open()
 #include <sys/stat.h>
+#include <time.h>
 
 //Define Macros
 #define BUF_SIZE 1024
@@ -23,6 +24,7 @@
 
 void print_mode(mode_t mode);
 void shortTOC(const char * filename);
+void print_timespec(struct timespec ts);
 //Main
 int main(int argc, char *argv[]) {
 	//Define Variables
@@ -109,6 +111,14 @@ int main(int argc, char *argv[]) {
 						print_mode(md.st_mode);
 						printf("\t\tuser: \t\t%s\n", pw->pw_name);
 						printf("\t\tgroup: \t\t%s\n", grp->gr_name);
+						snprintf(buf, sizeof(buf), "%lld", (long long)md.st_size);
+						printf("\t\tsize: \t\t%s\n", buf);
+
+						printf("\t\tatime: ");
+						print_timespec(md.st_mtim);
+						printf("\t\tmtime: ");
+						print_timespec(md.st_atim);
+
 
 						/*
 						   snprintf(buf, sizeof(buf), "%d", md.st_gid);
@@ -119,12 +129,8 @@ int main(int argc, char *argv[]) {
 						   */
 
 
-						snprintf(buf, sizeof(buf), "%lld", (long long)md.st_size);
-						printf("\t\tsize: \t\t%s\n", buf);
 
 						printf("\n\t\twork in progress:\n");
-						printf("\t\tmtime: \t\t%s\n", buf);
-						printf("\t\tatime: \t\t%s\n", buf);
 						printf("\t\tmd5 sum header: %s\n", buf);
 						printf("\t\tmd5 sum data: \t%s\n\n", buf);
 
@@ -189,4 +195,19 @@ void print_mode(mode_t mode) {
     buf[10] = '\0';
 
     printf("\t\tmode: \t\t%s\n", buf);
+}
+
+void print_timespec(struct timespec ts) {
+    // Convert seconds to struct tm
+    struct tm *tm_info = localtime(&ts.tv_sec);
+   char * timezone = tzname[tm_info->tm_isdst];
+
+    // Buffer for formatted time
+    char buffer[100];
+
+    // Format the time
+    strftime(buffer, sizeof(buffer), "\t\t%Y-%m-%d %H:%M:%S", tm_info);
+
+    // Print the formatted time
+    printf("%s %s\n", buffer, timezone);
 }
