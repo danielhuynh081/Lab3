@@ -10,7 +10,10 @@
 #include <string.h>
 #include <unistd.h>
 #include "viktar.h"
+#include <pwd.h>  // For getpwuid
+#include <grp.h>  // For getgrgid
 #include <fcntl.h>  // Required for open()
+#include <sys/stat.h>
 
 //Define Macros
 #define BUF_SIZE 1024
@@ -18,6 +21,7 @@
 #define MAX_SHIFT 95
 #define BASE 32
 
+void print_mode(mode_t mode);
 void shortTOC(const char * filename);
 //Main
 int main(int argc, char *argv[]) {
@@ -25,7 +29,7 @@ int main(int argc, char *argv[]) {
 	int opt = 0;            
 	char * filename = NULL;
 	int iarch = STDIN_FILENO;
-	char buf[100] = {0};
+	char buf[BUF_SIZE] = {0};
 	viktar_header_t md; 
 
 	//Handle Commands
@@ -44,13 +48,13 @@ int main(int argc, char *argv[]) {
 				}
 				break;
 			case 'c': // Create File
-				if(!filename){
-					printf("write to stdout\n");
+				if (!filename) {
+					printf("Please specify an archive filename with -f\n");
+					exit(EXIT_FAILURE);
 				}
 				break;
 			case 't': // Short Table Of Contents
 				if(filename != NULL){
-					printf("inside t case\n");
 					iarch = open(filename, O_RDONLY);
 					if(iarch == -1){
 						perror("Error opening file\n");
@@ -67,7 +71,7 @@ int main(int argc, char *argv[]) {
 						//print
 						memset(buf, 0, 100);
 						strncpy(buf, md.viktar_name, VIKTAR_MAX_FILE_NAME_LEN);
-						printf("\ntfilename: %s\n", buf);
+						printf("\nfilename: %s\n", buf);
 						lseek(iarch, md.st_size + sizeof(viktar_footer_t), SEEK_CUR);
 					}
 					if(filename != NULL){
@@ -78,8 +82,61 @@ int main(int argc, char *argv[]) {
 
 				break;
 			case 'T': // Long Table Of Contents
-				if(!filename){
-					printf("read from stdin\n");
+				if(filename != NULL){
+					iarch = open(filename, O_RDONLY);
+					if(iarch == -1){
+						perror("Error opening file\n");
+						exit(EXIT_FAILURE);
+					}
+					read(iarch, buf, strlen(VIKTAR_TAG));
+					if(strncmp(buf, VIKTAR_TAG, strlen(VIKTAR_TAG)) != 0){
+						perror("Not a valid viktar file\n");
+						exit(EXIT_FAILURE);
+					}
+					printf("Contents of the viktar file : \"%s\"\n", filename != NULL ? filename : "stdin");
+					while (read(iarch, &md, sizeof(viktar_header_t)) > 0){
+						struct passwd *pw = getpwuid(md.st_uid);
+						struct group * grp = getgrgid(md.st_gid);
+
+						//print
+						memset(buf, 0, 100);
+
+						strncpy(buf, md.viktar_name, VIKTAR_MAX_FILE_NAME_LEN);
+						printf("\tfile name: %s\n", buf);
+
+						//snprintf(buf, sizeof(buf), "%o", md.st_mode);
+						//printf("\t\tmode: \t\t%s\n", buf);
+						print_mode(md.st_mode);
+						printf("\t\tuser: \t\t%s\n", pw->pw_name);
+						printf("\t\tgroup: \t\t%s\n", grp->gr_name);
+
+						/*
+						   snprintf(buf, sizeof(buf), "%d", md.st_gid);
+						   printf("\t\tgroup ID: \t%s\n", buf);
+
+						   snprintf(buf, sizeof(buf), "%d", md.st_uid);
+						   printf("\t\tuser ID: \t%s\n", buf);
+						   */
+
+
+						snprintf(buf, sizeof(buf), "%lld", (long long)md.st_size);
+						printf("\t\tsize: \t\t%s\n", buf);
+
+						printf("\n\t\twork in progress:\n");
+						printf("\t\tmtime: \t\t%s\n", buf);
+						printf("\t\tatime: \t\t%s\n", buf);
+						printf("\t\tmd5 sum header: %s\n", buf);
+						printf("\t\tmd5 sum data: \t%s\n\n", buf);
+
+
+
+
+						// You can also print the last access and modification times
+						lseek(iarch, md.st_size + sizeof(viktar_footer_t), SEEK_CUR);
+					}
+					if(filename != NULL){
+						close(iarch);
+					}
 				}
 				break;
 			case 'V': // Validate Content
@@ -112,4 +169,24 @@ int main(int argc, char *argv[]) {
 	// Program Rest Of Code // Table of contents tomorrow
 	return 1;
 
+}
+void print_mode(mode_t mode) {
+    char buf[11];
+    buf[0] = (mode & S_IFDIR) ? 'd' : '-';
+
+    buf[1] = (mode & S_IRUSR) ? 'r' : '-';
+    buf[2] = (mode & S_IWUSR) ? 'w' : '-';
+    buf[3] = (mode & S_IXUSR) ? 'x' : '-';
+
+    buf[4] = (mode & S_IRGRP) ? 'r' : '-';
+    buf[5] = (mode & S_IWGRP) ? 'w' : '-';
+    buf[6] = (mode & S_IXGRP) ? 'x' : '-';
+
+    buf[7] = (mode & S_IROTH) ? 'r' : '-';
+    buf[8] = (mode & S_IWOTH) ? 'w' : '-';
+    buf[9] = (mode & S_IXOTH) ? 'x' : '-';
+
+    buf[10] = '\0';
+
+    printf("\t\tmode: \t\t%s\n", buf);
 }
