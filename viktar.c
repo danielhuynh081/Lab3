@@ -25,15 +25,16 @@
 void print_mode(mode_t mode);
 void shortTOC(const char * filename);
 void print_timespec(struct timespec ts);
+void createFile(char * filename, char ** files);
 //Main
 int main(int argc, char *argv[]) {
 	//Define Variables
 	int opt = 0;            
+	int fd =0;
 	char * filename = NULL;
 	int iarch = STDIN_FILENO;
 	char buf[BUF_SIZE] = {0};
 	viktar_header_t md; 
-
 	//Handle Commands
 	while ((opt = getopt(argc, argv, OPTIONS)) != -1) {
 		switch (opt) {
@@ -54,6 +55,18 @@ int main(int argc, char *argv[]) {
 					printf("Please specify an archive filename with -f\n");
 					exit(EXIT_FAILURE);
 				}
+				fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+				if (fd == -1) {
+					perror("Error creating archive file");
+					exit(EXIT_FAILURE);
+				}
+				createFile(filename, &argv[optind]);
+//./viktar -c -f filename.viktar 1.txt. 2.txt
+
+				
+
+				close(fd);
+				printf("Archive file %s created successfully with metadata.\n", filename);
 				break;
 			case 't': // Short Table Of Contents
 				if(filename != NULL){
@@ -176,38 +189,69 @@ int main(int argc, char *argv[]) {
 	return 1;
 
 }
+void createFile(char * filename, char ** files){
+	int oarch = STDOUT_FILENO;
+	viktar_header_t header;
+	struct stat hold;
+
+	if(filename){
+		//initial permissions
+		//open file descriptor after
+		//assign persmission using umask
+	}else{
+	//check verbose flag, if verbose flag is not null do something
+		return;
+	}
+	//write the header infomration into the output file
+	write(oarch, VIKTAR_TAG, strlen(VIKTAR_TAG));
+	//for loop iterates the files
+	for(int i= 0; files[i] != NULL; ++i){
+		//iterate the files to put into the viktar and handle metadata
+		memset(&header, 0, sizeof(viktar_header_t));
+		strncpy(header.viktar_name, files[i], VIKTAR_MAX_FILE_NAME_LEN);
+		//use stat function
+		stat(files[i], &hold);
+		//check if its successsful, exit if fails
+		header.st_mode = hold.st_mode;
+	
+
+		//write the header into the archive
+		//handle md5 in the footer
+	}
+
+}
 void print_mode(mode_t mode) {
-    char buf[11];
-    buf[0] = (mode & S_IFDIR) ? 'd' : '-';
+	char buf[11];
+	buf[0] = (mode & S_IFDIR) ? 'd' : '-';
 
-    buf[1] = (mode & S_IRUSR) ? 'r' : '-';
-    buf[2] = (mode & S_IWUSR) ? 'w' : '-';
-    buf[3] = (mode & S_IXUSR) ? 'x' : '-';
+	buf[1] = (mode & S_IRUSR) ? 'r' : '-';
+	buf[2] = (mode & S_IWUSR) ? 'w' : '-';
+	buf[3] = (mode & S_IXUSR) ? 'x' : '-';
 
-    buf[4] = (mode & S_IRGRP) ? 'r' : '-';
-    buf[5] = (mode & S_IWGRP) ? 'w' : '-';
-    buf[6] = (mode & S_IXGRP) ? 'x' : '-';
+	buf[4] = (mode & S_IRGRP) ? 'r' : '-';
+	buf[5] = (mode & S_IWGRP) ? 'w' : '-';
+	buf[6] = (mode & S_IXGRP) ? 'x' : '-';
 
-    buf[7] = (mode & S_IROTH) ? 'r' : '-';
-    buf[8] = (mode & S_IWOTH) ? 'w' : '-';
-    buf[9] = (mode & S_IXOTH) ? 'x' : '-';
+	buf[7] = (mode & S_IROTH) ? 'r' : '-';
+	buf[8] = (mode & S_IWOTH) ? 'w' : '-';
+	buf[9] = (mode & S_IXOTH) ? 'x' : '-';
 
-    buf[10] = '\0';
+	buf[10] = '\0';
 
-    printf("\t\tmode: \t\t%s\n", buf);
+	printf("\t\tmode: \t\t%s\n", buf);
 }
 
 void print_timespec(struct timespec ts) {
-    // Convert seconds to struct tm
-    struct tm *tm_info = localtime(&ts.tv_sec);
-   char * timezone = tzname[tm_info->tm_isdst];
+	// Convert seconds to struct tm
+	struct tm *tm_info = localtime(&ts.tv_sec);
+	char * timezone = tzname[tm_info->tm_isdst];
 
-    // Buffer for formatted time
-    char buffer[100];
+	// Buffer for formatted time
+	char buffer[100];
 
-    // Format the time
-    strftime(buffer, sizeof(buffer), "\t\t%Y-%m-%d %H:%M:%S", tm_info);
+	// Format the time
+	strftime(buffer, sizeof(buffer), "\t\t%Y-%m-%d %H:%M:%S", tm_info);
 
-    // Print the formatted time
-    printf("%s %s\n", buffer, timezone);
+	// Print the formatted time
+	printf("%s %s\n", buffer, timezone);
 }
