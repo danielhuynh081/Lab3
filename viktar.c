@@ -2,13 +2,14 @@
 //CS333 Jesse Chaney Lab 3. This program reads and writes archive files using getopt and read() write() functions
 //
 
+#include <md5.h>
 
-#include <openssl/md5.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
 #include "viktar.h"
 #include <pwd.h>  // For getpwuid
 #include <grp.h>  // For getgrgid
@@ -24,12 +25,12 @@
 
 void print_mode(mode_t mode);
 void shortTOC(const char * filename, viktar_header_t md, char buf[BUF_SIZE]);
+void longTOC( char * filename, viktar_header_t md, char buf[BUF_SIZE], size_t buf_size);
 void print_timespec(struct timespec ts);
 void createFile(char * filename, char ** files);
 //Main
 int main(int argc, char *argv[]) {
 	//Define Variables
-	int iarch = STDIN_FILENO;
 	int opt = 0;            
 	int fd =0;
 	char * filename = NULL;
@@ -57,45 +58,7 @@ int main(int argc, char *argv[]) {
 				  sTOC =1;
 				  break;
 			case 'T': // Long Table Of Contents
-				if(filename != NULL){
-					iarch = open(filename, O_RDONLY);
-					if(iarch == -1){
-						perror("Error opening file\n");
-						exit(EXIT_FAILURE);
-					}
-					read(iarch, buf, strlen(VIKTAR_TAG));
-					if(strncmp(buf, VIKTAR_TAG, strlen(VIKTAR_TAG)) != 0){
-						perror("Not a valid viktar file\n");
-						exit(EXIT_FAILURE);
-					}
-					printf("Contents of the viktar file : \"%s\"\n", filename != NULL ? filename : "stdin");
-					while (read(iarch, &md, sizeof(viktar_header_t)) > 0){
-						struct passwd *pw = getpwuid(md.st_uid);
-						struct group * grp = getgrgid(md.st_gid);
-						//print
-						memset(buf, 0, 100);
-						strncpy(buf, md.viktar_name, VIKTAR_MAX_FILE_NAME_LEN);
-						printf("\tfile name: %s\n", buf);
-						print_mode(md.st_mode);
-						printf("\t\tuser: \t\t%s\n", pw->pw_name);
-						printf("\t\tgroup: \t\t%s\n", grp->gr_name);
-						snprintf(buf, sizeof(buf), "%lld", (long long)md.st_size);
-						printf("\t\tsize: \t\t%s\n", buf);
-						printf("\t\tatime: ");
-						print_timespec(md.st_mtim);
-						printf("\t\tmtime: ");
-						print_timespec(md.st_atim);
-						printf("\n\t\twork in progress:\n");
-						printf("\t\tmd5 sum header: %s\n", buf);
-						printf("\t\tmd5 sum data: \t%s\n\n", buf);
-						// You can also print the last access and modification times
-						lseek(iarch, md.st_size + sizeof(viktar_footer_t), SEEK_CUR);
-					}
-						close(iarch);
-				}else{
-					perror("Filename null\n");
-					exit(EXIT_FAILURE);
-				}
+				  longTOC(filename, md, buf, sizeof(buf));
 				break;
 			case 'V': // Validate Content
 				if(!filename){
@@ -103,18 +66,20 @@ int main(int argc, char *argv[]) {
 				}
 				break;
 			case 'v': // Verbose Processing
-				printf("verbose processing\n");
 				break;
 			case 'h': // Help Option
-				printf("\nUsage: ./viktar (-e | -d) (-s shift) (-h) (< textfile.txt | Keyboard input)\n");
-				printf(" -x: Extract Members\n");
-				printf(" -c: Create File\n");
-				printf(" -t: Short Table Of Contents\n");
-				printf(" -T: Short Table Of Contents\n");
-				printf(" -f: Specify File\n");
-				printf(" -V: Validate Content\n");
-				printf(" -v: Verbose Processing\n");
-				printf(" -h: Help Message\n");
+				printf("help text\n");
+				printf("\t./viktar\n");
+				printf("\tOptions: xcTf:Vhv\n");
+				printf("\t\t-x\t\textract file/files from archive\n");
+				printf("\t\t-c\t\tcreate an archive file\n");
+				printf("\t\t-t\t\tdisplay a short table of contents of the archive file\n");
+				printf("\t\t-T\t\tdisplay a long table of contents of the archive file\n");
+				printf("\t\tOnly one of the xctTV can be specified");
+				printf("\n\t\t-f filename\tuse filename as the archive file\n");
+				printf("\t\t-V\t\tvalidate the MD5 vaues in the viktar file\n");
+				printf("\t\t-v\t\tgive verbose diagnostic messages\n");
+				printf("\t\t-h\t\tdisplay this AMAZING help message\n");
 				exit(EXIT_SUCCESS);
 				break;
 			default:
@@ -145,6 +110,55 @@ int main(int argc, char *argv[]) {
 
 }
 
+
+void longTOC( char * filename, viktar_header_t md, char buf[BUF_SIZE], size_t buf_size){
+	int iarch = STDIN_FILENO;
+	viktar_footer_t footer;
+	if(filename != NULL){
+		iarch = open(filename, O_RDONLY);
+		if(iarch == -1){
+			perror("Error opening file\n");
+			exit(EXIT_FAILURE);
+		}
+		read(iarch, buf, strlen(VIKTAR_TAG));
+		if(strncmp(buf, VIKTAR_TAG, strlen(VIKTAR_TAG)) != 0){
+			perror("Not a valid viktar file\n");
+			exit(EXIT_FAILURE);
+		}
+		printf("Contents of the viktar file : \"%s\"\n", filename != NULL ? filename : "stdin");
+		while (read(iarch, &md, sizeof(viktar_header_t)) > 0){
+			struct passwd *pw = getpwuid(md.st_uid);
+			struct group * grp = getgrgid(md.st_gid);
+			//print
+			memset(buf, 0, 100);
+			strncpy(buf, md.viktar_name, VIKTAR_MAX_FILE_NAME_LEN);
+			printf("\tfile name: %s\n", buf);
+			print_mode(md.st_mode);
+			printf("\t\tuser: \t\t%s\n", pw->pw_name);
+			printf("\t\tgroup: \t\t%s\n", grp->gr_name);
+			snprintf(buf, buf_size, "%lld", (long long)md.st_size);
+			printf("\t\tsize: \t\t%s\n", buf);
+			printf("\t\tatime: ");
+			print_timespec(md.st_mtim);
+			printf("\t\tmtime: ");
+			print_timespec(md.st_atim);
+			printf("\n\t\twork in progress:\n");
+
+			// You can also print the last access and modification times
+			lseek(iarch, md.st_size + sizeof(viktar_footer_t), SEEK_CUR);
+			printf("\t\tmd5 sum header: ");
+			for (int i = 0; i < MD5_DIGEST_LENGTH; i++) printf("%02x", footer.md5sum_header[i]);
+			printf("\n\t\tmd5 sum data:   ");
+			for (int i = 0; i < MD5_DIGEST_LENGTH; i++) printf("%02x", footer.md5sum_data[i]);
+			printf("\n\n");
+		}
+		close(iarch);
+	}else{
+		perror("Filename null\n");
+		exit(EXIT_FAILURE);
+	}
+}
+
 void shortTOC(const char * filename, viktar_header_t md, char buf[BUF_SIZE]){
 	ssize_t bytes_read;
 	int iarch = STDIN_FILENO;
@@ -167,20 +181,20 @@ void shortTOC(const char * filename, viktar_header_t md, char buf[BUF_SIZE]){
 		}
 
 
-		printf("Contents of the viktar file : \"%s\"\n", filename != NULL ? filename : "stdin");
+		printf(" Contents of the viktar file: %s\n", filename != NULL ? filename : "stdin");
 		while (read(iarch, &md, sizeof(viktar_header_t)) > 0){
 			//print
 			memset(buf, 0, 100);
 			strncpy(buf, md.viktar_name, VIKTAR_MAX_FILE_NAME_LEN);
-			printf("\nfilename: %s\n", buf);
+			printf("\n\tfile name: %s\n", buf);
 			lseek(iarch, md.st_size + sizeof(viktar_footer_t), SEEK_CUR);
 		}
 		if(filename != NULL){
 			close(iarch);
 		}
 	}else{
-	printf("filename null");
-	exit(EXIT_FAILURE);
+		printf("filename null");
+		exit(EXIT_FAILURE);
 	}
 	exit(EXIT_SUCCESS);
 }
@@ -188,11 +202,16 @@ void createFile(char * filename, char ** files){
 	int oarch = STDOUT_FILENO;
 	int input_fd;
 	viktar_header_t header;
+	viktar_footer_t footer;
 	struct stat hold;
 	char buffer[BUF_SIZE];
         ssize_t bytes_read;
+	mode_t old_umask = umask(0);
+	MD5_CTX context_header;
+	MD5_CTX context_data;
+	MD5Init(&context_header);
+	MD5Init(&context_data);
 
-	mode_t old_umask = umask(0022);
 	if(filename){
 		//initial permissions
 		//open file descriptor after
@@ -202,19 +221,20 @@ void createFile(char * filename, char ** files){
 			printf("open fail");
 			exit(EXIT_FAILURE);
 		}
-		umask(old_umask);
 	}	
 	else{
 		//check verbose flag, if verbose flag is not null do something
 		return;
 	}
-	//write the header infomration into the output file
+	//write the viktar tag into the output file
 	write(oarch, VIKTAR_TAG, strlen(VIKTAR_TAG));
 	for(int i= 0; files[i] != NULL; ++i){
 		//iterate the files to put into the viktar and handle metadata
-		printf("\nfile: %d\n", i); 
+//		buffer[BUF_SIZE] = {0};
 		memset(&header, 0, sizeof(viktar_header_t));
 		strncpy(header.viktar_name, files[i], VIKTAR_MAX_FILE_NAME_LEN);
+		printf("file name: %s", files[i]);
+
 		//use stat function
 		if(stat(files[i], &hold) == -1){
 			perror("Meta data failure\n");
@@ -224,14 +244,18 @@ void createFile(char * filename, char ** files){
 
 		//check if its successsful, exit if fails
 		header.st_mode = hold.st_mode;
+		header.st_size = hold.st_size;
 		header.st_uid = hold.st_uid;
 		header.st_gid = hold.st_gid;
 		header.st_atim = hold.st_atim;
 		header.st_mtim = hold.st_mtim;
 		//write the header into the archive
-		//handle md5 in the footer
-		// Write the header to the archive
+
+		MD5Update(&context_header, (unsigned char*)&header, sizeof(viktar_header_t));
+		MD5Final(footer.md5sum_header, &context_header);
+
 		write(oarch, &header, sizeof(viktar_header_t));
+
 		// Open the file for reading content
 		input_fd = open(files[i], O_RDONLY);
 		if (input_fd == -1) {
@@ -239,7 +263,12 @@ void createFile(char * filename, char ** files){
 			close(oarch);
 			return;
 		}
+		//md5
+		
+
 		while ((bytes_read = read(input_fd, buffer, sizeof(buffer))) > 0) {
+			//update md5
+			MD5Update(&context_data, (const uint8_t *)buffer, bytes_read);
 			if (write(oarch, buffer, bytes_read) != bytes_read) {
 				perror("Error writing file content to archive");
 				close(input_fd);
@@ -247,11 +276,14 @@ void createFile(char * filename, char ** files){
 				exit(EXIT_FAILURE);
 			}
 		}
+		//Finalize md5
+		MD5Final(footer.md5sum_data, &context_data);
+
 		close(input_fd);
+		write(oarch, &footer, sizeof(viktar_footer_t));
 	}
 	close(oarch);
-	printf("Archive file %s created successfully with metadata.\n", filename);
-	//for loop iterates the files
+	umask(old_umask);
 }
 void print_mode(mode_t mode) {
 	char buf[11];
