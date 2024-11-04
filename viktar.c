@@ -78,18 +78,19 @@ int main(int argc, char *argv[]) {
 				Verbose = !Verbose;
 				break;
 			case 'h': // Help Option
-				printf("help text");
-				printf("\n\t./viktar");
-				printf("\n\tOptions: xcTf:Vhv");
-				printf("\n\t\t-x\t\textract file/files from archive");
-				printf("\n\t\t-c\t\tcreate an archive file");
-				printf("\n\t\t-t\t\tdisplay a short table of contents of the archive file");
-				printf("\n\t\t-T\t\tdisplay a long table of contents of the archive file");
-				printf("\n\t\tOnly one of the xctTV can be specified");
-				printf("\n\t\t-f filename\tuse filename as the archive file");
-				printf("\n\t\t-V\t\tvalidate the MD5 vaues in the viktar file");
-				printf("\n\t\t-v\t\tgive verbose diagnostic messages");
-				printf("\n\t\t-h\t\tdisplay this AMAZING help message\n");
+				fprintf(stderr, "help text\n\t%s\n\tOptions: %s\n", argv[0], OPTIONS);
+		//		printf("help text");
+		//		printf("\n\t./viktar");
+		//		printf("\n\tOptions: xcTf:Vhv");
+				fprintf(stderr,"\t\t-x\t\textract file/files from archive");
+				fprintf(stderr,"\n\t\t-c\t\tcreate an archive file");
+				fprintf(stderr,"\n\t\t-t\t\tdisplay a short table of contents of the archive file");
+				fprintf(stderr,"\n\t\t-T\t\tdisplay a long table of contents of the archive file\n");
+				fprintf(stderr,"\t\tOnly one of xctTV can be specified\n");
+				fprintf(stderr,"\t\t-f filename\tuse filename as the archive file");
+				fprintf(stderr,"\n\t\t-V\t\tvalidate the MD5 vaues in the viktar file");
+				fprintf(stderr,"\n\t\t-v\t\tgive verbose diagnostic messages");
+				fprintf(stderr,"\n\t\t-h\t\tdisplay this AMAZING help message\n");
 				exit(EXIT_SUCCESS);
 				break;
 			default:
@@ -128,7 +129,6 @@ int main(int argc, char *argv[]) {
 void validateFile(const char *filename) {
         uint8_t headercheck[MD5_DIGEST_LENGTH];
         uint8_t datacheck[MD5_DIGEST_LENGTH];
-        ssize_t bytes_read =0;
         ssize_t bytes_read2 =0;
         int iarch = STDIN_FILENO;
         int iarch2 = STDIN_FILENO;
@@ -169,8 +169,12 @@ void validateFile(const char *filename) {
                         MD5Update(&context_header, (unsigned char *)&md, sizeof(viktar_header_t));
 
 			//data
+
+		//	bytes_read2 = read(iarch, buffer, md.st_size);
+		//	MD5Update(&context_data, buffer, bytes_read2);
+
 			for(;(bytes_read2 = read(iarch2, buffer, BUF_SIZE)) >0;){
-				MD5Update(&context_data, buffer, bytes_read);
+				MD5Update(&context_data, buffer, bytes_read2);
 			}
 			MD5Final(datacheck, &context_data);
 			MD5Final(headercheck, &context_header);
@@ -178,11 +182,11 @@ void validateFile(const char *filename) {
 			printf("Validation for data member %d:\n", member);
 
 			// Move file pointer past file content
-			if (lseek(iarch, md.st_size, SEEK_CUR) == -1) {
+	/*		if (lseek(iarch, md.st_size, SEEK_CUR) == -1) {
 				perror("Error seeking past file content\n");
 				exit(EXIT_FAILURE);
 			}
-
+*/
 			// Debug: Print raw footer data in hex
 			if (read(iarch, &footer, sizeof(viktar_footer_t)) != sizeof(viktar_footer_t)) {
 				perror("Error reading footer\n");
@@ -323,20 +327,20 @@ void longTOC( char * filename, viktar_header_t md, char buf[BUF_SIZE], size_t bu
                 printf("Enter the filename:");
                 if (fgets(buf, buf_size, stdin) == NULL) {
                         perror("Error reading filename");
-                        exit(EXIT_FAILURE);
+                  //      exit(EXIT_FAILURE);
                 }
                 buf[strcspn(buf, "\n")] = '\0';
                 filename = buf;
-                strncpy(filename2, filename, sizeof(filename2) - 1);
 
                 iarch = open(filename, O_RDONLY);
         }
         else {
                 iarch = open(filename, O_RDONLY);
         }
+	strncpy(filename2, filename, sizeof(filename2) - 1);
 	 if(iarch == -1){
                 perror("Error opening file\n");
-                exit(EXIT_FAILURE);
+                //exit(EXIT_FAILURE);
         }
 
 
@@ -344,7 +348,7 @@ void longTOC( char * filename, viktar_header_t md, char buf[BUF_SIZE], size_t bu
 	read(iarch, buf, strlen(VIKTAR_TAG));
 	if (strncmp(buf, VIKTAR_TAG, strlen(VIKTAR_TAG)) != 0) {
 		perror("Not a valid viktar file\n");
-		exit(EXIT_FAILURE);
+		//exit(EXIT_FAILURE);
 	}
 
 	printf("Contents of the viktar file: \"%s\"\n", filename2);
@@ -369,13 +373,13 @@ void longTOC( char * filename, viktar_header_t md, char buf[BUF_SIZE], size_t bu
 		// Move file pointer past file content
 		if (lseek(iarch, md.st_size, SEEK_CUR) == -1) {
 			perror("Error seeking past file content\n");
-			exit(EXIT_FAILURE);
+	//		exit(EXIT_FAILURE);
 		}
 
 		// Debug: Print raw footer data in hex
 		if (read(iarch, &footer, sizeof(viktar_footer_t)) != sizeof(viktar_footer_t)) {
 			perror("Error reading footer\n");
-			exit(EXIT_FAILURE);
+	//		exit(EXIT_FAILURE);
 		}
 
 		printf("\t\tmd5 sum header: ");
@@ -401,7 +405,6 @@ void shortTOC(char * filename, viktar_header_t md, char buf[BUF_SIZE], size_t bu
 		}
 		buf[strcspn(buf, "\n")] = '\0';
 		filename = buf;
-		strncpy(filename2, filename, sizeof(filename2) - 1);
 
 		iarch = open(filename, O_RDONLY);
 	}
@@ -412,6 +415,7 @@ void shortTOC(char * filename, viktar_header_t md, char buf[BUF_SIZE], size_t bu
 		perror("Error opening file\n");
 		exit(EXIT_FAILURE);
 	}
+	strncpy(filename2, filename, sizeof(filename2) - 1);
 	// Read the expected number of bytes for the tag
 	bytes_read = read(iarch, buf, strlen(VIKTAR_TAG));
 	if (bytes_read != strlen(VIKTAR_TAG)) {
@@ -423,12 +427,12 @@ void shortTOC(char * filename, viktar_header_t md, char buf[BUF_SIZE], size_t bu
 		perror("Not a valid viktar file\n");
 		exit(EXIT_FAILURE);
 	}
-	printf("Contents of the viktar file: %s", filename2);
+	printf("Contents of viktar file: \"%s\"\n", filename ? filename : "stdin");
 	while (read(iarch, &md, sizeof(viktar_header_t)) > 0){
 		//print
 		memset(buf, 0, 100);
 		strncpy(buf, md.viktar_name, VIKTAR_MAX_FILE_NAME_LEN);
-		printf("\n\tfile name: %s\n", buf);
+		printf("\tfile name: %s\n", buf);
 		lseek(iarch, md.st_size + sizeof(viktar_footer_t), SEEK_CUR);
 	}
 	if(filename != NULL){
