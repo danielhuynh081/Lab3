@@ -243,85 +243,106 @@ bool findFile(char ** files, char * file){
 	}	
 	return false;
 }
-void extractFiles(const char * filename, char ** files){
-	int iarch = STDIN_FILENO;
-	int fd =0;
-	char *data_buf = NULL;
-	ssize_t bytes_read = {'\0'};
-	char buf[BUF_SIZE];
-	viktar_footer_t footer;
-	viktar_header_t md;
-	MD5_CTX context_header;
-	MD5_CTX context_data;
-	MD5Init(&context_header);
-	MD5Init(&context_data);
+void extractFiles(const char *filename, char **files) {
+    int iarch = STDIN_FILENO;
+    int fd = 0;
+    struct timespec times[2];
+    char *data_buf = NULL;
+    ssize_t bytes_read = 0;
+    char buf[BUF_SIZE];
+    viktar_footer_t footer;
+    viktar_header_t md;
+    MD5_CTX context_header;
+    MD5_CTX context_data;
 
-	if(!filename){
-		printf("Enter the filename:");
-		if (fgets(buf, sizeof(buf), stdin) == NULL) {
-			perror("Error reading filename");
-			exit(EXIT_FAILURE);
-		}
-		buf[strcspn(buf, "\n")] = '\0';
-		filename = buf;
+    MD5Init(&context_header);
+    MD5Init(&context_data);
 
-	}
-	iarch = open(filename, O_RDONLY);
-	if (iarch == -1) {
-		perror("Error opening viktar file");
-		exit(EXIT_FAILURE);
-	}
-	read(iarch, buf, strlen(VIKTAR_TAG));
-	if (strncmp(buf, VIKTAR_TAG, strlen(VIKTAR_TAG)) != 0) {
-		perror("Not a valid viktar file\n");
-		exit(EXIT_FAILURE);
-	}
-	while(read(iarch, &md, sizeof(viktar_header_t)) > 0){
-		data_buf = malloc(md.st_size);
-		if (!data_buf) {
-			perror("Error allocating memory for file data");
-			exit(EXIT_FAILURE);
-		}
-		//check if this is the file to extract
-		if((*files == NULL) || (findFile(files, md.viktar_name))){
-			fd = open(md.viktar_name, O_WRONLY | O_CREAT, md.st_mode);
-			if(fd==-1){
-				printf("error opening file");
-				free(data_buf);
-				exit(EXIT_FAILURE);
-			}
+    // If filename is NULL, ask for input
+    if (!filename) {
+        printf("Enter the filename: ");
+        if (fgets(buf, sizeof(buf), stdin) == NULL) {
+            perror("Error reading filename");
+            exit(EXIT_FAILURE);
+        }
+        buf[strcspn(buf, "\n")] = '\0';  // Remove the newline character
+        filename = buf;
+    }
 
-			// Read the file data into the buffer
-			bytes_read = read(iarch, data_buf, md.st_size);
-			if (bytes_read != md.st_size) {
-				perror("Error reading file data");
-				free(data_buf);
-				close(fd);
-				exit(EXIT_FAILURE);
-			}
+    // Open the viktar file
+    iarch = open(filename, O_RDONLY);
+    if (iarch == -1) {
+        perror("Error opening viktar file");
+        exit(EXIT_FAILURE);
+    }
 
-			//read foooter md5 header calculation and md5 data sum
-			read(iarch, &footer, sizeof(viktar_footer_t));
+    // Read the tag and validate it's a viktar archive
+    read(iarch, buf, strlen(VIKTAR_TAG));
+    if (strncmp(buf, VIKTAR_TAG, strlen(VIKTAR_TAG)) != 0) {
+        perror("Not a valid viktar file\n");
+        exit(EXIT_FAILURE);
+    }
 
-			write(fd, data_buf, md.st_size);
-			fchmod(fd, md.st_mode);
-			//restore time to fd using futimens using man page
-			close(fd);
+    // Process each file in the archive
+    while (read(iarch, &md, sizeof(viktar_header_t)) > 0) {
+        data_buf = malloc(md.st_size);
+        if (!data_buf) {
+            perror("Error allocating memory for file data");
+            exit(EXIT_FAILURE);
+        }
 
-		}
+        // Check if this file should be extracted
+        if ((*files == NULL) || (findFile(files, md.viktar_name))) {
+            // Open the file to extract
+            fd = open(md.viktar_name, O_WRONLY | O_CREAT | O_TRUNC, md.st_mode);
+            if (fd == -1) {
+                perror("Error opening file for writing");
+                free(data_buf);
+                exit(EXIT_FAILURE);
+            }
 
-		else{
-			if (lseek(iarch, md.st_size+ sizeof(viktar_footer_t), SEEK_CUR) == -1) {
-				perror("Error seeking past file content\n");
-				exit(EXIT_FAILURE);
-			}
+            // Read the file data into the buffer
+            bytes_read = read(iarch, data_buf, md.st_size);
+            if (bytes_read != md.st_size) {
+                perror("Error reading file data");
+                free(data_buf);
+                close(fd);
+                exit(EXIT_FAILURE);
+            }
 
-		}
-		free(data_buf);
-	}
+            // Read the footer (MD5 checksums)
+            read(iarch, &footer, sizeof(viktar_footer_t));
 
-	close(iarch);
+            // Write the data to the extracted file
+            write(fd, data_buf, md.st_size);
 
+            // Set file permissions
+            fchmod(fd, md.st_mode);
+
+            // Set the access and modification times using futimens
+            times[0] = md.st_atim;  // access time
+            times[1] = md.st_mtim;  // modification time
+
+            if (futimens(fd, times) == -1) {
+                perror("Error setting file timestamps");
+            }
+
+            // Close the file after writing
+            close(fd);
+        } else {
+            // Skip this file (seek to the next one)
+            if (lseek(iarch, md.st_size + sizeof(viktar_footer_t), SEEK_CUR) == -1) {
+                perror("Error seeking past file content\n");
+                exit(EXIT_FAILURE);
+            }
+        }
+
+        // Free the buffer before processing the next file
+        free(data_buf);
+    }
+
+    // Close the archive file
+    close(iarch);
 }
 void longTOC( char * filename, viktar_header_t md, char buf[BUF_SIZE], size_t buf_size){
 	int iarch = STDIN_FILENO;
