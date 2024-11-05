@@ -31,17 +31,19 @@ void extractFiles(const char* filename, char ** files);
 void print_mode(mode_t mode);
 void shortTOC(char * filename, viktar_header_t md, char buf[BUF_SIZE], size_t buf_size);
 void longTOC( char * filename, viktar_header_t md, char buf[BUF_SIZE], size_t buf_size);
-void print_timespec(struct timespec ts);
+void print_timespec(struct timespec *ts);
 void createFile(char * filename, char ** files);
 //Main
 int main(int argc, char *argv[]) {
 	//Define Variables
 	bool Verbose = false;
 	int opt = 0;            
-	int fd =0;
 	char * filename = NULL;
 	int create =0;
 	int sTOC =0;
+	int lTOC =0;
+	int validFunc =0;
+	int extFunct =0;
 	char buf[BUF_SIZE] = {0};
 	viktar_header_t md; 
 	//Handle Commands
@@ -60,7 +62,7 @@ int main(int argc, char *argv[]) {
 
 				break;
 			case 'x': // Extract Members
-				extractFiles(filename, &argv[optind]);
+				extFunct=1;
 				break;
 			case 'c': // Create File
 				create = 1;
@@ -69,10 +71,10 @@ int main(int argc, char *argv[]) {
 				sTOC =1;
 				break;
 			case 'T': // Long Table Of Contents
-				longTOC(filename, md, buf, sizeof(buf));
+				lTOC =1;
 				break;
 			case 'V': // Validate Content
-				validateFile(filename);
+				validFunc=1;
 				break;
 			case 'v': // Verbose Processing
 				Verbose = !Verbose;
@@ -106,22 +108,24 @@ int main(int argc, char *argv[]) {
 
 	}
 	//create
-	if(create == 1){
-		if (!filename) {
-			printf("Please specify an archive filename with -f\n");
-			exit(EXIT_FAILURE);
-		}
-		fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-		if (fd == -1) {
-			perror("Error creating archive file");
-			exit(EXIT_FAILURE);
-		}
+	if(create){
 		createFile(filename, &argv[optind]);
-		close(fd);
 	}
-	if(sTOC ==1){
+	if(sTOC){
 		shortTOC(filename, md, buf, sizeof(buf));
 	}
+	if(validFunc){
+		validateFile(filename);
+	}
+	if(lTOC){
+		longTOC(filename, md, buf, sizeof(buf));
+	}
+	if(extFunct){
+		extractFiles(filename, &argv[optind]);
+	}
+
+
+
 	return 1;
 
 }
@@ -131,21 +135,28 @@ void validateFile(const char *filename) {
         uint8_t datacheck[MD5_DIGEST_LENGTH];
         ssize_t bytes_read2 =0;
         int iarch = STDIN_FILENO;
-        int iarch2 = STDIN_FILENO;
+        //int iarch2 = STDIN_FILENO;
         int member =1;
         viktar_footer_t footer;  // Added footer variable
         viktar_header_t md;
         char buf[BUF_SIZE];
-        unsigned char buffer[BUF_SIZE] = {'\0'};
+        unsigned char* buffer = NULL;
 
         MD5_CTX context_header;
         MD5_CTX context_data;
-        MD5Init(&context_header);
-        MD5Init(&context_data);
+	if(!filename){
+                if (fgets(buf, sizeof(buf), stdin) == NULL) {
+                        perror("Error reading filename");
+                        exit(EXIT_FAILURE);
+                }
+                buf[strcspn(buf, "\n")] = '\0';
+                filename = buf;
+
+        }
 
         if (filename != NULL) {
                 iarch = open(filename, O_RDONLY);
-                iarch2 = open(filename, O_RDONLY);
+                //iarch2 = open(filename, O_RDONLY);
 
                 if (iarch == -1) {
                         perror("Error opening file\n");
@@ -155,86 +166,72 @@ void validateFile(const char *filename) {
                 read(iarch, buf, strlen(VIKTAR_TAG));
                 if (strncmp(buf, VIKTAR_TAG, strlen(VIKTAR_TAG)) != 0) {
                         perror("Not a valid viktar file\n");
-                        exit(EXIT_FAILURE);
-                }
-
-                printf("Contents of the viktar file: \"%s\"\n", filename != NULL ? filename : "stdin");
-
-                while (read(iarch, &md, sizeof(viktar_header_t)) > 0) {
-                        memset(buf, 0, 100);
-                        strncpy(buf, md.viktar_name, VIKTAR_MAX_FILE_NAME_LEN);
-                        //calculate md5
-
-                        //header
-                        MD5Update(&context_header, (unsigned char *)&md, sizeof(viktar_header_t));
-
-			//data
-
-		//	bytes_read2 = read(iarch, buffer, md.st_size);
-		//	MD5Update(&context_data, buffer, bytes_read2);
-
-			for(;(bytes_read2 = read(iarch2, buffer, BUF_SIZE)) >0;){
-				MD5Update(&context_data, buffer, bytes_read2);
-			}
-			MD5Final(datacheck, &context_data);
-			MD5Final(headercheck, &context_header);
-
-			printf("Validation for data member %d:\n", member);
-
-			// Move file pointer past file content
-	/*		if (lseek(iarch, md.st_size, SEEK_CUR) == -1) {
-				perror("Error seeking past file content\n");
-				exit(EXIT_FAILURE);
-			}
-*/
-			// Debug: Print raw footer data in hex
-			if (read(iarch, &footer, sizeof(viktar_footer_t)) != sizeof(viktar_footer_t)) {
-				perror("Error reading footer\n");
-				exit(EXIT_FAILURE);
-			}
-			if (memcmp(headercheck, footer.md5sum_header, MD5_DIGEST_LENGTH) == 0) {
-				printf("\tHeader MD5 does match:\n");
-				printf("\t\tfound:   ");
-				for (int i = 0; i < MD5_DIGEST_LENGTH; i++) printf("%02x", headercheck[i]);
-				printf("\n\t\tin file: ");
-				for(int i =0; i < MD5_DIGEST_LENGTH; i++)printf("%02x", footer.md5sum_header[i]);
-			}
-			else {
-				printf("\t*** Header MD5 not match.\n");
-				printf("\t\tfound:   ");
-				for (int i = 0; i < MD5_DIGEST_LENGTH; i++) printf("%02x", headercheck[i]);
-				printf("\n\t\tin file: ");
-				for(int i =0; i < MD5_DIGEST_LENGTH; i++)printf("%02x", footer.md5sum_header[i]);
-			}
-			if (memcmp(footer.md5sum_data, datacheck, MD5_DIGEST_LENGTH) == 0) {
-				printf("\n\tData MD5 does match:\n");
-				printf("\n\t\tfound:   ");
-				for (int i = 0; i < MD5_DIGEST_LENGTH; i++) printf("%02x", datacheck[i]);
-				printf("\n\t\tin file: ");
-				for (int i = 0; i < MD5_DIGEST_LENGTH; i++) printf("%02x", footer.md5sum_data[i]);
-			} else {
-				printf("\n\t*** Data MD5 not match.\n");
-				printf("\t\tfound:   ");
-				for (int i = 0; i < MD5_DIGEST_LENGTH; i++) printf("%02x", datacheck[i]);
-				printf("\n\t\tin file: ");
-				for (int i = 0; i < MD5_DIGEST_LENGTH; i++) printf("%02x", footer.md5sum_data[i]);
-			}
-			if((memcmp(footer.md5sum_data, datacheck, MD5_DIGEST_LENGTH) == 0) && (memcmp(headercheck, footer.md5sum_header, MD5_DIGEST_LENGTH) == 0)){
-				printf("\n\t\tValidation success:\t\t%s for member %d", filename, member);
-			}else{
-				printf("\n\t*** Validation failure:\t\t%s for member %d", filename,  member);
-			}
-			printf("\n");
-			++member;
-			MD5Init(&context_header);
+			exit(EXIT_FAILURE);
 		}
-
-		close(iarch);
-		close(iarch2);
-	} else {
-		perror("Filename null\n");
-		exit(EXIT_FAILURE);
 	}
+	while (read(iarch, &md, sizeof(viktar_header_t)) > 0) {
+		memset(buf, 0, 100);
+		strncpy(buf, md.viktar_name, VIKTAR_MAX_FILE_NAME_LEN);
+		//calculate md5
+		//header
+		MD5Init(&context_header);
+		MD5Init(&context_data);
+		MD5Update(&context_header, (unsigned char *)&md, sizeof(viktar_header_t));
+		//data
+		buffer = (unsigned char * ) malloc(md.st_size + sizeof(unsigned char));
+		memset(buffer, 0, md.st_size);
+		bytes_read2 = read(iarch, buffer, md.st_size);
+
+		MD5Update(&context_data, buffer, bytes_read2);
+		MD5Final(datacheck, &context_data);
+		MD5Final(headercheck, &context_header);
+		printf("Validation for data member %d:\n", member);
+
+		// Debug: Print raw footer data in hex
+		if (read(iarch, &footer, sizeof(viktar_footer_t)) != sizeof(viktar_footer_t)) {
+			perror("Error reading footer\n");
+			exit(EXIT_FAILURE);
+		}
+		if (memcmp(headercheck, footer.md5sum_header, MD5_DIGEST_LENGTH) == 0) {
+			printf("\tHeader MD5 does match:\n");
+			printf("\t\tfound:   ");
+			for (int i = 0; i < MD5_DIGEST_LENGTH; i++) printf("%02x", headercheck[i]);
+			printf("\n\t\tin file: ");
+			for(int i =0; i < MD5_DIGEST_LENGTH; i++)printf("%02x", footer.md5sum_header[i]);
+		}
+		else {
+			printf("\t*** Header MD5 does not match:\n");
+			printf("\t\tfound:   ");
+			for (int i = 0; i < MD5_DIGEST_LENGTH; i++) printf("%02x", headercheck[i]);
+			printf("\n\t\tin file: ");
+			for(int i =0; i < MD5_DIGEST_LENGTH; i++)printf("%02x", footer.md5sum_header[i]);
+		}
+		if (memcmp(footer.md5sum_data, datacheck, MD5_DIGEST_LENGTH) == 0) {
+			printf("\n\tData MD5 does match:\n");
+			printf("\t\tfound:   ");
+			for (int i = 0; i < MD5_DIGEST_LENGTH; i++) printf("%02x", datacheck[i]);
+			printf("\n\t\tin file: ");
+			for (int i = 0; i < MD5_DIGEST_LENGTH; i++) printf("%02x", footer.md5sum_data[i]);
+		} else {
+			printf("\n\t*** Data MD5 does not match:\n");
+			printf("\t\tfound:   ");
+			for (int i = 0; i < MD5_DIGEST_LENGTH; i++) printf("%02x", datacheck[i]);
+			printf("\n\t\tin file: ");
+			for (int i = 0; i < MD5_DIGEST_LENGTH; i++) printf("%02x", footer.md5sum_data[i]);
+		}
+		if((memcmp(footer.md5sum_data, datacheck, MD5_DIGEST_LENGTH) == 0) && (memcmp(headercheck, footer.md5sum_header, MD5_DIGEST_LENGTH) == 0)){
+			printf("\n\t\tValidation success:\t\t%s for member %d", filename ? filename : "stdin", member);
+		}else{
+			printf("\n\t*** Validation failure:\t\t%s for member %d", filename ? filename : "stdin",  member);
+		}
+		printf("\n");
+		++member;
+	}
+
+
+	close(iarch);
+	//close(iarch2);
+	exit(EXIT_SUCCESS);
 
 
 }
@@ -247,7 +244,7 @@ bool findFile(char ** files, char * file){
 	return false;
 }
 void extractFiles(const char * filename, char ** files){
-	int iarch = open(filename, O_RDONLY);
+	int iarch = STDIN_FILENO;
 	int fd =0;
 	char *data_buf = NULL;
 	ssize_t bytes_read = {'\0'};
@@ -260,9 +257,16 @@ void extractFiles(const char * filename, char ** files){
 	MD5Init(&context_data);
 
 	if(!filename){
-		printf("stdin\n");
-		exit(EXIT_FAILURE);
+		printf("Enter the filename:");
+		if (fgets(buf, sizeof(buf), stdin) == NULL) {
+			perror("Error reading filename");
+			exit(EXIT_FAILURE);
+		}
+		buf[strcspn(buf, "\n")] = '\0';
+		filename = buf;
+
 	}
+	iarch = open(filename, O_RDONLY);
 	if (iarch == -1) {
 		perror("Error opening viktar file");
 		exit(EXIT_FAILURE);
@@ -313,7 +317,7 @@ void extractFiles(const char * filename, char ** files){
 			}
 
 		}
-			free(data_buf);
+		free(data_buf);
 	}
 
 	close(iarch);
@@ -323,40 +327,35 @@ void longTOC( char * filename, viktar_header_t md, char buf[BUF_SIZE], size_t bu
 	int iarch = STDIN_FILENO;
 	viktar_footer_t footer;  // Added footer variable
 	char filename2[VIKTAR_MAX_FILE_NAME_LEN];
-        if (filename == NULL) {
-                printf("Enter the filename:");
-                if (fgets(buf, buf_size, stdin) == NULL) {
-                        perror("Error reading filename");
-                  //      exit(EXIT_FAILURE);
-                }
-                buf[strcspn(buf, "\n")] = '\0';
-                filename = buf;
-
-                iarch = open(filename, O_RDONLY);
-        }
-        else {
-                iarch = open(filename, O_RDONLY);
-        }
+	if (filename == NULL) {
+		printf("Enter the filename:");
+		if (fgets(buf, buf_size, stdin) == NULL) {
+			perror("Error reading filename");
+			exit(EXIT_FAILURE);
+		}
+		buf[strcspn(buf, "\n")] = '\0';
+		filename = buf;
+	}
+	iarch = open(filename, O_RDONLY);
 	strncpy(filename2, filename, sizeof(filename2) - 1);
-	 if(iarch == -1){
-                perror("Error opening file\n");
-                //exit(EXIT_FAILURE);
-        }
+	if(iarch == -1){
+		perror("Error opening file\n");
+		exit(EXIT_FAILURE);
+	}
 
 
 
 	read(iarch, buf, strlen(VIKTAR_TAG));
 	if (strncmp(buf, VIKTAR_TAG, strlen(VIKTAR_TAG)) != 0) {
 		perror("Not a valid viktar file\n");
-		//exit(EXIT_FAILURE);
+		exit(EXIT_FAILURE);
 	}
 
-	printf("Contents of the viktar file: \"%s\"\n", filename2);
+	printf("Contents of viktar file: \"%s\"\n", filename ? filename : "stdin");
 
 	while (read(iarch, &md, sizeof(viktar_header_t)) > 0) {
 		struct passwd *pw = getpwuid(md.st_uid);
 		struct group *grp = getgrgid(md.st_gid);
-
 		memset(buf, 0, 100);
 		strncpy(buf, md.viktar_name, VIKTAR_MAX_FILE_NAME_LEN);
 		printf("\tfile name: %s\n", buf);
@@ -364,33 +363,32 @@ void longTOC( char * filename, viktar_header_t md, char buf[BUF_SIZE], size_t bu
 		printf("\t\tuser: \t\t%s\n", pw->pw_name);
 		printf("\t\tgroup: \t\t%s\n", grp->gr_name);
 		snprintf(buf, buf_size, "%lld", (long long)md.st_size);
-		printf("\t\tsize: \t\t%s\n", buf);
+		printf("\t\tsize: \t\t%s", buf);
+		printf("\n\t\tmtime: ");
+		print_timespec(&md.st_mtim);
 		printf("\t\tatime: ");
-		print_timespec(md.st_mtim);
-		printf("\t\tmtime: ");
-		print_timespec(md.st_atim);
+		print_timespec(&md.st_atim);
 
 		// Move file pointer past file content
 		if (lseek(iarch, md.st_size, SEEK_CUR) == -1) {
 			perror("Error seeking past file content\n");
-	//		exit(EXIT_FAILURE);
+			exit(EXIT_FAILURE);
 		}
 
 		// Debug: Print raw footer data in hex
 		if (read(iarch, &footer, sizeof(viktar_footer_t)) != sizeof(viktar_footer_t)) {
 			perror("Error reading footer\n");
-	//		exit(EXIT_FAILURE);
+			exit(EXIT_FAILURE);
 		}
 
 		printf("\t\tmd5 sum header: ");
-
-		for(int i =0; i < MD5_DIGEST_LENGTH; i++)printf("%02x", footer.md5sum_header[i]);
+		for(int i =0; i < MD5_DIGEST_LENGTH; ++i)printf("%02x", footer.md5sum_header[i]);
 		printf("\n\t\tmd5 sum data:   ");
-		for (int i = 0; i < MD5_DIGEST_LENGTH; i++) printf("%02x", footer.md5sum_data[i]);
-		printf("\n\n");
+		for (int i = 0; i < MD5_DIGEST_LENGTH; ++i) printf("%02x", footer.md5sum_data[i]);
+		printf("\n");
 	}
-
 	close(iarch);
+	exit(EXIT_SUCCESS);
 }
 
 void shortTOC(char * filename, viktar_header_t md, char buf[BUF_SIZE], size_t buf_size){
@@ -447,12 +445,10 @@ void createFile(char * filename, char ** files){
 	viktar_footer_t footer;
 	struct stat hold;
 	char buffer[BUF_SIZE];
-        ssize_t bytes_read;
+	ssize_t bytes_read;
 	mode_t old_umask = umask(0);
 	MD5_CTX context_header;
 	MD5_CTX context_data;
-	MD5Init(&context_header);
-	MD5Init(&context_data);
 
 	if(filename){
 		//initial permissions
@@ -464,15 +460,11 @@ void createFile(char * filename, char ** files){
 			exit(EXIT_FAILURE);
 		}
 	}
-	else{
-		//check verbose flag, if verbose flag is not null do something
-		return;
-	}
 	//write the viktar tag into the output file
 	write(oarch, VIKTAR_TAG, strlen(VIKTAR_TAG));
 	for(int i= 0; files[i] != NULL; ++i){
 		//iterate the files to put into the viktar and handle metadata
-//		buffer[BUF_SIZE] = {0};
+		//		buffer[BUF_SIZE] = {0};
 		memset(&header, 0, sizeof(viktar_header_t));
 		strncpy(header.viktar_name, files[i], VIKTAR_MAX_FILE_NAME_LEN);
 		printf("file name: %s", files[i]);
@@ -492,6 +484,8 @@ void createFile(char * filename, char ** files){
 		header.st_atim = hold.st_atim;
 		header.st_mtim = hold.st_mtim;
 		//write the header into the archive
+		MD5Init(&context_header);
+		MD5Init(&context_data);
 
 		MD5Update(&context_header, (unsigned char*)&header, sizeof(viktar_header_t));
 		MD5Final(footer.md5sum_header, &context_header);
@@ -506,7 +500,6 @@ void createFile(char * filename, char ** files){
 			return;
 		}
 		//md5
-
 
 		while ((bytes_read = read(input_fd, buffer, sizeof(buffer))) > 0) {
 			//update md5
@@ -526,39 +519,39 @@ void createFile(char * filename, char ** files){
 	}
 	close(oarch);
 	umask(old_umask);
+	exit(EXIT_SUCCESS);
 }
+
 void print_mode(mode_t mode) {
-	char buf[11];
-	buf[0] = (mode & S_IFDIR) ? 'd' : '-';
+	// Print file type
+	printf("\t\tmode:\t\t%c", (mode & S_IFDIR) ? 'd' : '-');
 
-	buf[1] = (mode & S_IRUSR) ? 'r' : '-';
-	buf[2] = (mode & S_IWUSR) ? 'w' : '-';
-	buf[3] = (mode & S_IXUSR) ? 'x' : '-';
+	// User permissions (owner)
+	printf("%c", (mode & S_IRUSR) ? 'r' : '-');
+	printf("%c", (mode & S_IWUSR) ? 'w' : '-');
+	printf("%c", (mode & S_IXUSR) ? 'x' : '-');
 
-	buf[4] = (mode & S_IRGRP) ? 'r' : '-';
-	buf[5] = (mode & S_IWGRP) ? 'w' : '-';
-	buf[6] = (mode & S_IXGRP) ? 'x' : '-';
+	// Group permissions
+	printf("%c", (mode & S_IRGRP) ? 'r' : '-');
+	printf("%c", (mode & S_IWGRP) ? 'w' : '-');
+	printf("%c", (mode & S_IXGRP) ? 'x' : '-');
 
-	buf[7] = (mode & S_IROTH) ? 'r' : '-';
-	buf[8] = (mode & S_IWOTH) ? 'w' : '-';
-	buf[9] = (mode & S_IXOTH) ? 'x' : '-';
+	// Other permissions
+	printf("%c", (mode & S_IROTH) ? 'r' : '-');
+	printf("%c", (mode & S_IWOTH) ? 'w' : '-');
+	printf("%c", (mode & S_IXOTH) ? 'x' : '-');
 
-	buf[10] = '\0';
-
-	printf("\t\tmode: \t\t%s\n", buf);
+	// Newline after the output
+	printf("\n");
 }
 
-void print_timespec(struct timespec ts) {
-	// Convert seconds to struct tm
-	struct tm *tm_info = localtime(&ts.tv_sec);
-	char * timezone = tzname[tm_info->tm_isdst];
-
-	// Buffer for formatted time
+void print_timespec(struct timespec* ts) {
 	char buffer[100];
+	// Convert seconds to struct tm
+	struct tm *tm_info = localtime(&(ts->tv_sec));
 
-	// Format the time
-	strftime(buffer, sizeof(buffer), "\t\t%Y-%m-%d %H:%M:%S", tm_info);
+	strftime(buffer, sizeof(buffer), "\t\t%Y-%m-%d %H:%M:%S %Z", tm_info);
 
 	// Print the formatted time
-	printf("%s %s\n", buffer, timezone);
+	printf("%s\n", buffer);
 }
